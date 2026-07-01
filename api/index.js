@@ -2,9 +2,6 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const dotenv = require('dotenv');
-
-dotenv.config();
 
 const app = express();
 
@@ -17,13 +14,14 @@ const emailRoutes = require('../server/routes/email');
 const clientRoutes = require('../server/routes/clients');
 const templateRoutes = require('../server/routes/templates');
 
-// Use routes
-app.use('/api/email', emailRoutes);
-app.use('/api/clients', clientRoutes);
-app.use('/api/templates', templateRoutes);
+// Use routes (without /api prefix since Vercel handles that)
+app.use('/email', emailRoutes);
+app.use('/clients', clientRoutes);
+app.use('/templates', templateRoutes);
 
-app.get('/api/health', (req, res) => {
+app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Email Blasting API is running' });
 });
 
+// Export for Vercel serverless
 module.exports = app;

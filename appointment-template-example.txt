@@ -1,0 +1,25 @@
+APPOINTMENT CONFIRMATION EMAIL TEMPLATE
+==========================================
+
+Subject: Confirmation for {{day}}
+
+Body:
+Hi {{name}},
+
+We have you scheduled for {{day}} at approximately {{arrivalTime}} arrival.
+
+Please send us a thumbs up or reply to this email to confirm your schedule.
+
+Thank you, we will see you then.
+
+Note: When making payment, please use your invoice number as your reference to avoid any further issues.
+
+Love the sparkle? Share the love!
+Leave us a 5-star Google review and enjoy $15.00 off your next clean!
+Click here to leave a review:
+https://g.page/r/CdJ0DLlOznlAEBM/review
+
+Then just send us a screenshot or use promo code REVIEW when booking.
+
+Best regards,
+Your Cleaning Team

@@ -62,6 +62,116 @@ router.delete('/:id', (req, res) => {
   res.json({ message: 'Client deleted' });
 });
 
+// Unsubscribe endpoint - handles unsubscribe requests
+router.get('/unsubscribe/:token', (req, res) => {
+  try {
+    const { token } = req.params;
+    // Token is base64 encoded email
+    const email = Buffer.from(token, 'base64').toString('utf8');
+    
+    const clients = loadClients();
+    const clientIndex = clients.findIndex(c => c.email.toLowerCase() === email.toLowerCase());
+    
+    if (clientIndex !== -1) {
+      clients[clientIndex].subscribed = false;
+      clients[clientIndex].unsubscribedAt = new Date().toISOString();
+      saveClients(clients);
+      
+      // Return a simple HTML page confirming unsubscribe
+      res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Unsubscribed</title>
+          <style>
+            body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f5f5f5; }
+            .container { text-align: center; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            h1 { color: #333; }
+            p { color: #666; }
+            .checkmark { font-size: 48px; color: #4CAF50; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="checkmark">✓</div>
+            <h1>Successfully Unsubscribed</h1>
+            <p>You have been removed from our mailing list.</p>
+            <p>You will no longer receive emails from us.</p>
+          </div>
+        </body>
+        </html>
+      `);
+    } else {
+      res.status(404).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Not Found</title>
+          <style>
+            body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f5f5f5; }
+            .container { text-align: center; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            h1 { color: #333; }
+            p { color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>Email Not Found</h1>
+            <p>This email address was not found in our system.</p>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+  } catch (error) {
+    res.status(500).send('An error occurred');
+  }
+});
+
+// Resubscribe endpoint
+router.get('/resubscribe/:token', (req, res) => {
+  try {
+    const { token } = req.params;
+    const email = Buffer.from(token, 'base64').toString('utf8');
+    
+    const clients = loadClients();
+    const clientIndex = clients.findIndex(c => c.email.toLowerCase() === email.toLowerCase());
+    
+    if (clientIndex !== -1) {
+      clients[clientIndex].subscribed = true;
+      clients[clientIndex].resubscribedAt = new Date().toISOString();
+      saveClients(clients);
+      
+      res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Resubscribed</title>
+          <style>
+            body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f5f5f5; }
+            .container { text-align: center; background: white; padding: 40px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            h1 { color: #333; }
+            p { color: #666; }
+            .checkmark { font-size: 48px; color: #4CAF50; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="checkmark">✓</div>
+            <h1>Successfully Resubscribed</h1>
+            <p>You have been added back to our mailing list.</p>
+          </div>
+        </body>
+        </html>
+      `);
+    } else {
+      res.status(404).send('Email not found');
+    }
+  } catch (error) {
+    res.status(500).send('An error occurred');
+  }
+});
+
 router.post('/import', upload.single('file'), (req, res) => {
   const results = [];
   

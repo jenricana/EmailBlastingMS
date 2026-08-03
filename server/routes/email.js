@@ -55,10 +55,17 @@ const replaceVariables = (text, client) => {
     .replace(/\{\{scheduleTime\}\}/g, client.scheduleTime || '');
 };
 
-const formatEmailBody = (body) => {
+const formatEmailBody = (body, unsubscribeUrl = null) => {
   // Convert all newlines to <br> tags, even in HTML content
   // This ensures plain text portions get proper line breaks
   let formatted = body.replace(/\n/g, '<br>');
+  
+  // Add unsubscribe footer if URL provided
+  const unsubscribeFooter = unsubscribeUrl ? `
+    <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #999; text-align: center;">
+      <p>If you no longer wish to receive these emails, you can <a href="${unsubscribeUrl}" style="color: #666;">unsubscribe here</a>.</p>
+    </div>
+  ` : '';
   
   // Wrap in proper HTML structure for better email client compatibility
   return `
@@ -71,17 +78,35 @@ const formatEmailBody = (body) => {
 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
   <div style="max-width: 600px;">
     ${formatted}
+    ${unsubscribeFooter}
   </div>
 </body>
 </html>`;
 };
 
+// Generate unsubscribe URL for a client
+const generateUnsubscribeUrl = (email, baseUrl) => {
+  const token = Buffer.from(email).toString('base64');
+  return `${baseUrl}/api/clients/unsubscribe/${token}`;
+};
+
 router.post('/send', async (req, res) => {
   try {
-    const { clients, subject, body, from, updateStatus, attachments } = req.body;
+    const { clients, subject, body, from, updateStatus, attachments, includeUnsubscribe = true } = req.body;
 
     if (!clients || clients.length === 0) {
       return res.status(400).json({ error: 'No clients selected' });
+    }
+
+    // Filter out unsubscribed clients
+    const subscribedClients = clients.filter(client => client.subscribed !== false);
+    const skippedCount = clients.length - subscribedClients.length;
+    
+    if (subscribedClients.length === 0) {
+      return res.status(400).json({ 
+        error: 'All selected clients have unsubscribed',
+        skipped: skippedCount 
+      });
     }
 
     const resend = getResendClient();
@@ -106,16 +131,22 @@ router.post('/send', async (req, res) => {
     }
     
     const results = [];
+    
+    // Get base URL for unsubscribe links
+    const baseUrl = process.env.APP_URL || 'https://emailblastingms.onrender.com';
 
     const emailAttachments = attachments ? JSON.parse(attachments).map(att => ({
       filename: att.filename,
       path: att.path
     })) : [];
 
-    for (const client of clients) {
+    for (const client of subscribedClients) {
       try {
         const personalizedSubject = replaceVariables(subject, client);
         let personalizedBody = replaceVariables(body, client);
+        
+        // Generate unsubscribe URL for this client
+        const unsubscribeUrl = includeUnsubscribe ? generateUnsubscribeUrl(client.email, baseUrl) : null;
         
         // For Resend, embed images as base64 instead of CID
         const logoPath = path.join(__dirname, '../../logo2.png');
@@ -133,7 +164,7 @@ router.post('/send', async (req, res) => {
           }
         }
         
-        personalizedBody = formatEmailBody(personalizedBody);
+        personalizedBody = formatEmailBody(personalizedBody, unsubscribeUrl);
 
         if (useResend) {
           // Send via Resend API
@@ -228,10 +259,11 @@ router.post('/send', async (req, res) => {
     const successCount = results.filter(r => r.status === 'sent').length;
     const failCount = results.filter(r => r.status === 'failed').length;
 
+    const skippedMsg = skippedCount > 0 ? `, ${skippedCount} skipped (unsubscribed)` : '';
     res.json({
-      message: `Sent ${successCount} emails, ${failCount} failed`,
+      message: `Sent ${successCount} emails, ${failCount} failed${skippedMsg}`,
       results,
-      summary: { total: clients.length, success: successCount, failed: failCount },
+      summary: { total: clients.length, success: successCount, failed: failCount, skipped: skippedCount },
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

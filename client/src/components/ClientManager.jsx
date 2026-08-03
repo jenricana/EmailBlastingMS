@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Trash2, Edit2, Upload, Download } from 'lucide-react'
+import { Plus, Trash2, Edit2, Upload, Download, MailX, Mail } from 'lucide-react'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 
@@ -56,6 +56,20 @@ export default function ClientManager({ clients, setClients }) {
       } catch (error) {
         toast.error('Failed to delete client')
       }
+    }
+  }
+
+  const handleToggleSubscription = async (client) => {
+    try {
+      const newStatus = client.subscribed === false ? true : false
+      await axios.put(`/api/clients/${client.id}`, { 
+        ...client, 
+        subscribed: newStatus 
+      })
+      toast.success(newStatus ? 'Client resubscribed' : 'Client unsubscribed')
+      loadClients()
+    } catch (error) {
+      toast.error('Failed to update subscription status')
     }
   }
 
@@ -219,6 +233,7 @@ export default function ClientManager({ clients, setClients }) {
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subscribed</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Day</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Arrival Time</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -227,9 +242,20 @@ export default function ClientManager({ clients, setClients }) {
           </thead>
           <tbody className="divide-y divide-gray-200">
             {clients.map((client) => (
-              <tr key={client.id} className="hover:bg-gray-50">
+              <tr key={client.id} className={`hover:bg-gray-50 ${client.subscribed === false ? 'opacity-60' : ''}`}>
                 <td className="px-6 py-4 whitespace-nowrap">{client.name}</td>
                 <td className="px-6 py-4 whitespace-nowrap">{client.email}</td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  {client.subscribed === false ? (
+                    <span className="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800 flex items-center gap-1 w-fit">
+                      <MailX className="w-3 h-3" /> Unsubscribed
+                    </span>
+                  ) : (
+                    <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800 flex items-center gap-1 w-fit">
+                      <Mail className="w-3 h-3" /> Subscribed
+                    </span>
+                  )}
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">{client.day || '-'}</td>
                 <td className="px-6 py-4 whitespace-nowrap">{client.arrivalTime || '-'}</td>
                 <td className="px-6 py-4 whitespace-nowrap">
@@ -241,10 +267,17 @@ export default function ClientManager({ clients, setClients }) {
                     {client.status || 'Pending'}
                   </span>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">
+                <td className="px-6 py-4 whitespace-nowrap flex items-center gap-2">
+                  <button
+                    onClick={() => handleToggleSubscription(client)}
+                    className={`${client.subscribed === false ? 'text-green-600 hover:text-green-800' : 'text-orange-600 hover:text-orange-800'}`}
+                    title={client.subscribed === false ? 'Resubscribe' : 'Unsubscribe'}
+                  >
+                    {client.subscribed === false ? <Mail className="w-4 h-4" /> : <MailX className="w-4 h-4" />}
+                  </button>
                   <button
                     onClick={() => handleEdit(client)}
-                    className="text-blue-600 hover:text-blue-800 mr-3"
+                    className="text-blue-600 hover:text-blue-800"
                   >
                     <Edit2 className="w-4 h-4" />
                   </button>

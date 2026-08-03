@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -33,6 +34,14 @@ const createTransporter = () => {
       pass: process.env.EMAIL_PASSWORD,
     },
   });
+};
+
+// Resend client for cloud deployment
+const getResendClient = () => {
+  if (process.env.RESEND_API_KEY) {
+    return new Resend(process.env.RESEND_API_KEY);
+  }
+  return null;
 };
 
 const replaceVariables = (text, client) => {
@@ -75,17 +84,25 @@ router.post('/send', async (req, res) => {
       return res.status(400).json({ error: 'No clients selected' });
     }
 
-    const transporter = createTransporter();
-    
-    try {
-      await transporter.verify();
-      console.log('SMTP connection verified successfully');
-    } catch (verifyError) {
-      console.error('SMTP verification failed:', verifyError.message);
-      return res.status(500).json({ 
-        error: 'Email server connection failed. Check your .env file settings.',
-        details: verifyError.message 
-      });
+    const resend = getResendClient();
+    const useResend = !!resend;
+    let transporter = null;
+
+    if (!useResend) {
+      // Fallback to SMTP if no Resend API key
+      transporter = createTransporter();
+      try {
+        await transporter.verify();
+        console.log('SMTP connection verified successfully');
+      } catch (verifyError) {
+        console.error('SMTP verification failed:', verifyError.message);
+        return res.status(500).json({ 
+          error: 'Email server connection failed. Check your .env file settings.',
+          details: verifyError.message 
+        });
+      }
+    } else {
+      console.log('Using Resend API for email delivery');
     }
     
     const results = [];
@@ -99,49 +116,93 @@ router.post('/send', async (req, res) => {
       try {
         const personalizedSubject = replaceVariables(subject, client);
         let personalizedBody = replaceVariables(body, client);
-        personalizedBody = formatEmailBody(personalizedBody);
-
-        const mailOptions = {
-          from: from || process.env.EMAIL_USER,
-          to: client.email,
-          subject: personalizedSubject,
-          html: personalizedBody,
-          attachments: []
-        };
-
-        // Add signature images as CID attachments if signature is present
+        
+        // For Resend, embed images as base64 instead of CID
         const logoPath = path.join(__dirname, '../../logo2.png');
         const signaturePath = path.join(__dirname, '../../image_signature.png');
         
-        console.log('Logo path:', logoPath, 'Exists:', fs.existsSync(logoPath));
-        console.log('Signature path:', signaturePath, 'Exists:', fs.existsSync(signaturePath));
-        console.log('Body includes cid:logo:', personalizedBody.includes('cid:logo'));
-        console.log('Body includes cid:signature:', personalizedBody.includes('cid:signature'));
-        
-        if (personalizedBody.includes('cid:logo') && fs.existsSync(logoPath)) {
-          mailOptions.attachments.push({
-            filename: 'logo.png',
-            path: logoPath,
-            cid: 'logo'
-          });
-          console.log('Added logo as CID attachment');
+        if (useResend) {
+          // Replace CID references with base64 embedded images for Resend
+          if (personalizedBody.includes('cid:logo') && fs.existsSync(logoPath)) {
+            const logoBase64 = fs.readFileSync(logoPath).toString('base64');
+            personalizedBody = personalizedBody.replace(/cid:logo/g, `data:image/png;base64,${logoBase64}`);
+          }
+          if (personalizedBody.includes('cid:signature') && fs.existsSync(signaturePath)) {
+            const sigBase64 = fs.readFileSync(signaturePath).toString('base64');
+            personalizedBody = personalizedBody.replace(/cid:signature/g, `data:image/png;base64,${sigBase64}`);
+          }
         }
         
-        if (personalizedBody.includes('cid:signature') && fs.existsSync(signaturePath)) {
-          mailOptions.attachments.push({
-            filename: 'signature.png',
-            path: signaturePath,
-            cid: 'signature'
-          });
-          console.log('Added signature image as CID attachment');
-        }
+        personalizedBody = formatEmailBody(personalizedBody);
 
-        // Add regular file attachments
-        if (emailAttachments.length > 0) {
-          mailOptions.attachments = mailOptions.attachments.concat(emailAttachments);
-        }
+        if (useResend) {
+          // Send via Resend API
+          const resendAttachments = [];
+          
+          // Add file attachments for Resend
+          for (const att of emailAttachments) {
+            if (fs.existsSync(att.path)) {
+              const content = fs.readFileSync(att.path).toString('base64');
+              resendAttachments.push({
+                filename: att.filename,
+                content: content
+              });
+            }
+          }
 
-        await transporter.sendMail(mailOptions);
+          const emailOptions = {
+            from: from || process.env.RESEND_FROM || 'onboarding@resend.dev',
+            to: client.email,
+            subject: personalizedSubject,
+            html: personalizedBody,
+          };
+          
+          if (resendAttachments.length > 0) {
+            emailOptions.attachments = resendAttachments;
+          }
+
+          await resend.emails.send(emailOptions);
+        } else {
+          // Send via SMTP (nodemailer)
+          const mailOptions = {
+            from: from || process.env.EMAIL_USER,
+            to: client.email,
+            subject: personalizedSubject,
+            html: personalizedBody,
+            attachments: []
+          };
+
+          // Add signature images as CID attachments if signature is present
+          console.log('Logo path:', logoPath, 'Exists:', fs.existsSync(logoPath));
+          console.log('Signature path:', signaturePath, 'Exists:', fs.existsSync(signaturePath));
+          console.log('Body includes cid:logo:', personalizedBody.includes('cid:logo'));
+          console.log('Body includes cid:signature:', personalizedBody.includes('cid:signature'));
+          
+          if (personalizedBody.includes('cid:logo') && fs.existsSync(logoPath)) {
+            mailOptions.attachments.push({
+              filename: 'logo.png',
+              path: logoPath,
+              cid: 'logo'
+            });
+            console.log('Added logo as CID attachment');
+          }
+          
+          if (personalizedBody.includes('cid:signature') && fs.existsSync(signaturePath)) {
+            mailOptions.attachments.push({
+              filename: 'signature.png',
+              path: signaturePath,
+              cid: 'signature'
+            });
+            console.log('Added signature image as CID attachment');
+          }
+
+          // Add regular file attachments
+          if (emailAttachments.length > 0) {
+            mailOptions.attachments = mailOptions.attachments.concat(emailAttachments);
+          }
+
+          await transporter.sendMail(mailOptions);
+        }
 
         const sentTime = new Date().toISOString();
         results.push({
@@ -300,9 +361,11 @@ router.post('/update-status', async (req, res) => {
 });
 
 router.get('/config', (req, res) => {
+  const useResend = !!process.env.RESEND_API_KEY;
   res.json({
-    configured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD),
-    from: process.env.EMAIL_USER,
+    configured: useResend || !!(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD),
+    from: useResend ? (process.env.RESEND_FROM || 'onboarding@resend.dev') : process.env.EMAIL_USER,
+    provider: useResend ? 'resend' : 'smtp'
   });
 });
 
